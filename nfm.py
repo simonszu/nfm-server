@@ -26,7 +26,11 @@ class CustomCollector(object):
         yield self.buf
         exit()
 
-      frequency = float(ser.readline().decode("utf-8")[:-2]) / 1000
+      try:
+        frequency = float(ser.readline().decode("utf-8")[:-2]) / 1000
+      except ValueError:
+        frequency = self.buf
+        
       ser.close()
 
       # Some logic to rule out invalid serial readings. If the read value is invalid, just use the old one
