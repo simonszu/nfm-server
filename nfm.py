@@ -23,7 +23,7 @@ class CustomCollector(object):
         ser.close()
         ser.open()
       except Exception as e:
-        print("error open serial port: " + str(e))
+        yield self.buf
         exit()
 
       frequency = float(ser.readline().decode("utf-8")[:-2]) / 1000
