@@ -7,7 +7,7 @@ SERIAL_PORT = os.environ['SERIAL']
 
 class CustomCollector(object):
     def __init__(self):
-        pass
+        self.buf = 50
 
     def collect(self):
       ser = serial.Serial( 
@@ -28,6 +28,12 @@ class CustomCollector(object):
 
       frequency = float(ser.readline().decode("utf-8")[:-2]) / 1000
       ser.close()
+
+      # Some logic to rule out invalid serial readings. If the read value is invalid, just use the old one
+      if frequency > 45:
+        self.buf = frequency
+      else:
+        frequency = self.buf
 
       value = GaugeMetricFamily("grid_frequency", 'Frequency of the electricity grid in Hz')
       value.add_metric(["grid_frequency"], frequency)
