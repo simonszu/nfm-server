@@ -48,7 +48,7 @@ if __name__ == '__main__':
     start_http_server(8000)
     REGISTRY.register(CustomCollector())
     while True:
-        time.sleep(1) # Get new value every 1 second
+        time.sleep(5) # Get new value every 5 seconds
 
 
 
