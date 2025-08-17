@@ -1,77 +1,54 @@
 #! /usr/bin/python3
-import serial
-import time
-import logging
-from prometheus_client import start_http_server, Gauge
+import time, serial, io, os
+from prometheus_client.core import GaugeMetricFamily, REGISTRY
+from prometheus_client import start_http_server
 
-# Logging Setup
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+SERIAL_PORT = os.environ['SERIAL']
 
-SERIAL_PORT = "/dev/ttyUSB0"  # Standard, kann via ENV überschrieben werden
-BAUDRATE = 9600
+class CustomCollector(object):
+    def __init__(self):
+        self.buf = 50
 
-# Prometheus Metric
-grid_frequency = Gauge("grid_frequency_hz", "Grid frequency in Hertz")
+    def collect(self):
+      ser = serial.Serial( 
+        port = SERIAL_PORT,
+        baudrate = 19200,
+        bytesize = serial.EIGHTBITS,
+        parity = serial.PARITY_NONE,
+        stopbits = serial.STOPBITS_ONE
+      )
+      try:
+        ser.open()
+      except IOError: # if port is already opened, close and open it again
+        ser.close()
+        ser.open()
+      except Exception as e:
+        yield self.buf
+        exit()
 
-def open_serial(port=SERIAL_PORT, baud=BAUDRATE, retries=5, delay=1):
-    """Öffnet den Serial-Port, mit automatischen Retries bei Fehlern und detailliertem Logging."""
-    for attempt in range(1, retries + 1):
-        try:
-            ser = serial.Serial(port, baud, timeout=1)
-            # Testread, um sicherzustellen, dass der Port wirklich zugänglich ist
-            try:
-                ser.read(1)
-            except serial.SerialException as e:
-                raise RuntimeError(f"Serial port {port} opened but not readable: {e}") from e
+      try:
+        frequency = float(ser.readline().decode("utf-8")[:-2]) / 1000
+      except ValueError:
+        frequency = self.buf
+        
+      ser.close()
 
-            logging.info(f"Serial port {port} opened at {baud} baud and is readable")
-            return ser
-        except Exception as e:
-            logging.warning(f"Attempt {attempt}/{retries} - failed to open {port}: {repr(e)}")
-            time.sleep(delay)
-    # Wenn alle Versuche scheitern, die letzte Exception weiterreichen
-    raise RuntimeError(f"Failed to open {port} after {retries} attempts") from e
+      # Some logic to rule out invalid serial readings. If the read value is invalid, just use the old one
+      if frequency > 45:
+        self.buf = frequency
+      else:
+        frequency = self.buf
 
+      value = GaugeMetricFamily("grid_frequency", 'Frequency of the electricity grid in Hz')
+      value.add_metric(["grid_frequency"], frequency)
 
-def read_loop():
-    ser = open_serial()
-    while True:
-        try:
-            raw_line = ser.readline()
-            logging.debug(f"Raw line from serial: {raw_line}")
+      yield value
 
-            # Nullbytes entfernen + strip
-            line = raw_line.decode(errors="ignore").replace("\x00", "").strip()
-
-            if not line:
-                logging.debug("Ignored empty line")
-                continue
-
-            if not line.isdigit():
-                logging.debug(f"Ignored non-numeric line: '{line}'")
-                continue
-
-            # Wert umrechnen: Millihertz -> Hertz
-            value = float(line) / 1000
-            grid_frequency.set(value)
-            logging.info(f"Updated metric: {value:.3f} Hz")
-
-        except serial.SerialException as e:
-            logging.error(f"Serial exception: {e} - reopening port")
-            try:
-                ser.close()
-            except Exception:
-                pass
-            time.sleep(1)
-            ser = open_serial()
-        except Exception as e:
-            logging.error(f"Unexpected error: {e}")
-            time.sleep(1)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     start_http_server(8000)
-    logging.info("Exporter started on port 8000")
-    read_loop()
+    REGISTRY.register(CustomCollector())
+    while True:
+        time.sleep(5) # Get new value every 5 seconds
+
+
+
