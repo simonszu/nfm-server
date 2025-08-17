@@ -8,7 +8,7 @@ ENV SERIAL=/dev/ttyUSB0
 
 # System-Tools für Debugging (optional)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
+    ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Python Requirements
