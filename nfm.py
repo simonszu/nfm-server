@@ -23,16 +23,23 @@ class CustomCollector(object):
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=1  # avoid blocking forever
+                timeout=1
             )
 
-            line = ser.readline()
-            logging.debug(f"Raw line from serial: {line}")
+            raw = ser.readline()
+            logging.debug(f"Raw line from serial: {raw}")
+
+            # Clean up line: strip whitespace and remove null bytes
+            line = raw.decode("utf-8", errors="ignore").replace("\x00", "").strip()
+            logging.debug(f"Cleaned line: '{line}'")
 
             try:
-                frequency = float(line.decode("utf-8").strip()) / 1000
+                if line:
+                    frequency = float(line) / 1000
+                else:
+                    raise ValueError("Empty line after cleanup")
             except ValueError as e:
-                logging.warning(f"Failed to parse line '{line}': {e}")
+                logging.warning(f"Failed to parse cleaned line '{line}': {e}")
                 frequency = self.buf
 
             ser.close()
@@ -41,7 +48,7 @@ class CustomCollector(object):
             logging.error(f"Serial error: {e}")
             frequency = self.buf
 
-        # Some logic to rule out invalid serial readings.
+        # Logic to rule out invalid readings
         if frequency > 45:
             self.buf = frequency
         else:
@@ -57,4 +64,4 @@ if __name__ == '__main__':
     REGISTRY.register(CustomCollector())
     logging.info("Exporter started on port 8000")
     while True:
-        time.sleep(5)  # Get new value every 5 seconds
+        time.sleep(5)
