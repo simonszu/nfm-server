@@ -17,16 +17,24 @@ BAUDRATE = 9600
 grid_frequency = Gauge("grid_frequency_hz", "Grid frequency in Hertz")
 
 def open_serial(port=SERIAL_PORT, baud=BAUDRATE, retries=5, delay=1):
-    """Öffnet den Serial-Port, mit automatischen Retries bei Fehlern."""
-    for attempt in range(1, retries+1):
+    """Öffnet den Serial-Port, mit automatischen Retries bei Fehlern und detailliertem Logging."""
+    for attempt in range(1, retries + 1):
         try:
             ser = serial.Serial(port, baud, timeout=1)
-            logging.info(f"Serial port {port} opened at {baud} baud")
+            # Testread, um sicherzustellen, dass der Port wirklich zugänglich ist
+            try:
+                ser.read(1)
+            except serial.SerialException as e:
+                raise RuntimeError(f"Serial port {port} opened but not readable: {e}") from e
+
+            logging.info(f"Serial port {port} opened at {baud} baud and is readable")
             return ser
-        except serial.SerialException as e:
-            logging.warning(f"Attempt {attempt}/{retries} - cannot open {port}: {e}")
+        except Exception as e:
+            logging.warning(f"Attempt {attempt}/{retries} - failed to open {port}: {repr(e)}")
             time.sleep(delay)
-    raise RuntimeError(f"Failed to open {port} after {retries} attempts")
+    # Wenn alle Versuche scheitern, die letzte Exception weiterreichen
+    raise RuntimeError(f"Failed to open {port} after {retries} attempts") from e
+
 
 def read_loop():
     ser = open_serial()
