@@ -1,55 +1,60 @@
 #! /usr/bin/python3
-import time, serial, io, os
+import time
+import serial
+import os
+import logging
 from prometheus_client.core import GaugeMetricFamily, REGISTRY
 from prometheus_client import start_http_server
 
-SERIAL_PORT = os.environ['SERIAL']
+# Setup logging
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
+
+SERIAL_PORT = os.environ.get('SERIAL', '/dev/ttyUSB0')
 
 class CustomCollector(object):
     def __init__(self):
-        self.buf = 50
+        self.buf = 50.0  # default frequency
 
     def collect(self):
-      ser = serial.Serial( 
-        port = SERIAL_PORT,
-        baudrate = 19200,
-        bytesize = serial.EIGHTBITS,
-        parity = serial.PARITY_NONE,
-        stopbits = serial.STOPBITS_ONE
-      )
-      try:
-        ser.open()
-      except IOError: # if port is already opened, close and open it again
-        ser.close()
-        ser.open()
-      except Exception as e:
-        yield self.buf
-        exit()
+        try:
+            ser = serial.Serial(
+                port=SERIAL_PORT,
+                baudrate=19200,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=1  # avoid blocking forever
+            )
 
-      try:
-        frequency = float(ser.readline().decode("utf-8")[:-2]) / 1000
-      except ValueError:
-        frequency = self.buf
-        
-      ser.close()
+            line = ser.readline()
+            logging.debug(f"Raw line from serial: {line}")
 
-      # Some logic to rule out invalid serial readings. If the read value is invalid, just use the old one
-      if frequency > 45:
-        self.buf = frequency
-      else:
-        frequency = self.buf
+            try:
+                frequency = float(line.decode("utf-8").strip()) / 1000
+            except ValueError as e:
+                logging.warning(f"Failed to parse line '{line}': {e}")
+                frequency = self.buf
 
-      value = GaugeMetricFamily("grid_frequency", 'Frequency of the electricity grid in Hz')
-      value.add_metric(["grid_frequency"], frequency)
+            ser.close()
 
-      yield value
+        except Exception as e:
+            logging.error(f"Serial error: {e}")
+            frequency = self.buf
+
+        # Some logic to rule out invalid serial readings.
+        if frequency > 45:
+            self.buf = frequency
+        else:
+            frequency = self.buf
+
+        value = GaugeMetricFamily("grid_frequency", 'Frequency of the electricity grid in Hz')
+        value.add_metric(["grid_frequency"], frequency)
+        yield value
+
 
 if __name__ == '__main__':
     start_http_server(8000)
     REGISTRY.register(CustomCollector())
+    logging.info("Exporter started on port 8000")
     while True:
-        time.sleep(5) # Get new value every 5 seconds
-
-
-
-
+        time.sleep(5)  # Get new value every 5 seconds
