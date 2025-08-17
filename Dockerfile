@@ -1,20 +1,26 @@
-# For more information, please refer to https://aka.ms/vscode-docker-python
-FROM python:3-slim-buster
+# Minimal, basierend auf Debian Bookworm
+FROM python:3-slim-bookworm
 
-# Keeps Python from generating .pyc files in the container
+# Keine .pyc Files und sofortiges Logging
 ENV PYTHONDONTWRITEBYTECODE=1
-
-# Turns off buffering for easier container logging
 ENV PYTHONUNBUFFERED=1
 
-# Specifies the device where the serial connector to the NFM device is located
+# Standard Serial Device (überschreibbar mit -e SERIAL=...)
 ENV SERIAL=/dev/ttyUSB0
 
-# Install pip requirements
-COPY requirements.txt .
-RUN python -m pip install -r requirements.txt
+# System-Tools für Debugging (optional)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
+# Installiere Python Requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# App-Verzeichnis
 WORKDIR /app
 COPY . /app
 
-CMD [ "python", "/app/nfm.py" ]
+# Default Command
+CMD ["python", "/app/nfm.py"]
