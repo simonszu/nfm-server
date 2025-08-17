@@ -1,7 +1,8 @@
+#! /usr/bin/python3
 import serial
+import time
 import logging
 from prometheus_client import start_http_server, Gauge
-import time
 
 # Logging Setup
 logging.basicConfig(
@@ -9,38 +10,60 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
+SERIAL_PORT = "/dev/ttyUSB0"  # Standard, kann via ENV überschrieben werden
+BAUDRATE = 9600
+
 # Prometheus Metric
 grid_frequency = Gauge("grid_frequency_hz", "Grid frequency in Hertz")
 
-def read_serial(port="/dev/ttyUSB0", baudrate=9600):
-    ser = serial.Serial(port, baudrate, timeout=1)
-    logging.info(f"Opened serial port {port} at {baudrate} baud")
+def open_serial(port=SERIAL_PORT, baud=BAUDRATE, retries=5, delay=1):
+    """Öffnet den Serial-Port, mit automatischen Retries bei Fehlern."""
+    for attempt in range(1, retries+1):
+        try:
+            ser = serial.Serial(port, baud, timeout=1)
+            logging.info(f"Serial port {port} opened at {baud} baud")
+            return ser
+        except serial.SerialException as e:
+            logging.warning(f"Attempt {attempt}/{retries} - cannot open {port}: {e}")
+            time.sleep(delay)
+    raise RuntimeError(f"Failed to open {port} after {retries} attempts")
 
+def read_loop():
+    ser = open_serial()
     while True:
         try:
             raw_line = ser.readline()
             logging.debug(f"Raw line from serial: {raw_line}")
 
-            # Bytes -> String und Nullbytes entfernen
+            # Nullbytes entfernen + strip
             line = raw_line.decode(errors="ignore").replace("\x00", "").strip()
-            logging.debug(f"Cleaned line: '{line}'")
 
             if not line:
-                logging.debug("Ignored empty/invalid line")
+                logging.debug("Ignored empty line")
                 continue
 
-            try:
-                value = float(line) / 1000  # Umrechnung: z. B. 50010 → 50.010 Hz
-                grid_frequency.set(value)
-                logging.info(f"Updated metric with value: {value:.3f} Hz")
-            except ValueError:
-                logging.warning(f"Could not parse line '{line}'")
+            if not line.isdigit():
+                logging.debug(f"Ignored non-numeric line: '{line}'")
+                continue
 
+            # Wert umrechnen: Millihertz -> Hertz
+            value = float(line) / 1000
+            grid_frequency.set(value)
+            logging.info(f"Updated metric: {value:.3f} Hz")
+
+        except serial.SerialException as e:
+            logging.error(f"Serial exception: {e} - reopening port")
+            try:
+                ser.close()
+            except Exception:
+                pass
+            time.sleep(1)
+            ser = open_serial()
         except Exception as e:
-            logging.error(f"Error while reading serial: {e}")
+            logging.error(f"Unexpected error: {e}")
             time.sleep(1)
 
 if __name__ == "__main__":
     start_http_server(8000)
     logging.info("Exporter started on port 8000")
-    read_serial()
+    read_loop()
